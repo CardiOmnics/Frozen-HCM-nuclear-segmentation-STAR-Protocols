@@ -1,0 +1,69 @@
+/// The full script to be used in QuPath's script editor (</>) can be found below
+/// NOTE: Any line of code preceded by "/" is inactivated and will not be executed
+/// NOTE: Any manual changes to e.g. settings in detect.cells.WatershedCellDetection (min/max diameter or Makemeasurements are not automatically updated in the script and will either have to be manually forced in QuPath's interface window, or have to be adjusted in the script below.
+/// NOTE: For more information, we refer to the original STAR Protocol
+
+////  Detect objects after creating full image annotation
+
+createFullImageAnnotation(true)
+runPlugin('qupath.imagej.detect.cells.WatershedCellDetection', '{"detectionImage":"DAPI","requestedPixelSizeMicrons":0.5,"backgroundRadiusMicrons":8.0,"backgroundByReconstruction":true,"medianRadiusMicrons":0.0,"sigmaMicrons":1.5,"minAreaMicrons":10.0,"maxAreaMicrons":400.0,"threshold":100.0,"watershedPostProcess":true,"cellExpansionMicrons":0.0,"includeNuclei":true,"smoothBoundaries":true,"makeMeasurements":false}')
+
+////  Remove full image annotation (keep detections)
+
+def hierarchy = getCurrentHierarchy()
+
+def selected = getSelectedObject()
+// NOTE: relies on createFullImageAnnotation(true) leaving the new annotation selected
+
+if (selected == null || !selected.isAnnotation()) {
+    Dialogs.showErrorMessage("Remove parent", "Please select the parent annotation first!")
+    return
+}
+
+def childCount = selected.getChildObjects().size()
+
+hierarchy.removeObject(selected, true)   // true = keep children, reassign them up the hierarchy
+
+fireHierarchyUpdate()
+
+println "Removed parent annotation, kept ${childCount} children"
+
+//// Convert detections to annotations and convert numerically
+
+import qupath.lib.objects.PathObjects
+
+// Get all detection objects in the image
+def detections = getDetectionObjects()
+
+if (detections.isEmpty()) {
+    Dialogs.showErrorMessage("Convert detections", "No detections found!")
+    return
+}
+
+def newAnnotations = []
+int counter = 1
+
+for (detection in detections) {
+    def roi = detection.getROI()
+    def annotation = PathObjects.createAnnotationObject(roi)
+    annotation.setName(counter.toString())          // numeric label
+    // Optional: give it a classification/color so it's easy to spot
+    annotation.setPathClass(getPathClass("Nucleus"))
+    newAnnotations << annotation
+    counter++
+}
+
+// Remove the original detections
+removeObjects(detections, false)
+
+// Add the new annotations to the hierarchy
+addObjects(newAnnotations)
+
+fireHierarchyUpdate()
+
+println "Converted ${newAnnotations.size()} detections into labelled annotations"
+
+//// Select annotations and add shape measurements
+
+selectAnnotations()
+addShapeMeasurements("AREA", "LENGTH", "CIRCULARITY", "SOLIDITY", "MAX_DIAMETER", "MIN_DIAMETER")
